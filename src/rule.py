@@ -27,17 +27,20 @@ class AssociationRule:
         self.lift: float = lift
         self.p_value: float = p_value
     
-    def describe(self, attr_map: dict) -> str:
+    def describe(self, dataset: Dataset) -> str:
         """
         Returns the rule with translated values.
         """
-        ant_str = self.antecedent.describe(attr_map)
-        cons_str = self.consequent.describe(attr_map)
+        ant_str = self.antecedent.describe(dataset)
+        cons_str = self.consequent.describe(dataset)
         
         return (
             f"{ant_str} => {cons_str}\n"
             f"   [Conf: {self.confidence:.2f} | Lift: {self.lift:.2f} | P-Val: {self.p_value:.4e}]"
         )
+    
+    def __str__(self):
+        return f"{self.antecedent} => {self.consequent} (Lift: {self.lift:.2f})"
     
 class RuleExtractor:
     def __init__(self, dataset: Dataset, min_conf: float = 0.8, log: Logger = None):
@@ -54,34 +57,32 @@ class RuleExtractor:
 
         rules = []
         
-        for _, union_itemset in enumerate(frontier):
+        for idx, union_itemset in enumerate(frontier):
+            all_intervals = union_itemset.intervals
+            n_items = len(all_intervals)            
             # We need at least 2 attributes to make a rule (A -> B)
-            attributes = list(union_itemset.intervals.keys())
-            if len(attributes) < 2:
+            if n_items < 2:
                 continue
 
-            # Support of the union (already calculated in Apriori)
-            # If it's missing, calculate it
+            # Support of the union
             supp_union = union_itemset.support
             if supp_union is None:
                 supp_union = self.dataset.calculate_support(union_itemset)
 
-            # Generate all non-empty subsets of attributes for Antecedent
-            # (Consequent will be the remaining attributes)
-            for i in range(1, len(attributes)):
-                for ant_attrs in itertools.combinations(attributes, i):
+            # Generate all non-empty subsets of indices for Antecedent
+            for i in range(1, n_items):
+                for ant_indices in itertools.combinations(range(n_items), i):
                     
                     # Create Antecedent and Consequent Itemsets
-                    ant_intervals = {k: union_itemset.intervals[k] for k in ant_attrs}
-                    cons_intervals = {k: union_itemset.intervals[k] for k in attributes if k not in ant_attrs}
+                    ant_data = [all_intervals[k] for k in ant_indices]
+                    cons_data = [all_intervals[k] for k in range(n_items) if k not in ant_indices]
                     
-                    antecedent = Itemset(ant_intervals)
-                    consequent = Itemset(cons_intervals)
+                    antecedent = Itemset(tuple(ant_data))
+                    consequent = Itemset(tuple(cons_data))
 
                     # Calculate Antecedent Support
                     antecedent.support = self.dataset.calculate_support(antecedent)
                     
-                    # Avoid division by zero
                     if antecedent.support == 0:
                         continue
 
@@ -89,7 +90,7 @@ class RuleExtractor:
                     confidence = supp_union / antecedent.support
                     
                     if confidence >= self.min_conf:
-                        # Calculate Consequent Support (needed for Lift/P-value)
+                        # Calculate Consequent Support
                         consequent.support = self.dataset.calculate_support(consequent)
 
                         # Calculate Metrics
@@ -112,7 +113,6 @@ class RuleExtractor:
             self.log.info(f"Extraction complete. Found {len(rules)} valid rules.")
             
         return rules
-    
     def _calculate_p_value(self, supp_union: float, supp_ant: float, supp_cons: float) -> float:
         """
         Calculates P-value using Fisher's Exact Test on the contingency table.

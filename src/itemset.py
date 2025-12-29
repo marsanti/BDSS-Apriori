@@ -82,25 +82,21 @@ class Itemset:
                 
         return predecessors
     
-    def describe(self, attr_map: dict) -> str:
+    def describe(self, dataset) -> str:
         """
-        Returns a human-readable string using real values from the dataset map.
-        Format: Attr:[min_val - max_val]
+        Returns a human-readable string using real values.
+        Accepts the 'dataset' object to access id_to_col_name and attr_map.
         """
         parts = []
-        # Sort keys for consistent output order
-        for attr in sorted(self._intervals.keys()):
-            min_key, max_key = self._intervals[attr]
+        for col_id, min_key, max_key in self.intervals:
             
-            if attr in attr_map:
-                # Retrieve real values
-                # attr_map structure: {attr_name: {index: value}}
-                val_min = attr_map[attr].get(min_key, float('-inf'))
-                val_max = attr_map[attr].get(max_key, float('inf'))
-                
-                parts.append(f"{attr}:[{val_min:.2f}, {val_max:.2f}]")
-            else:
-                # Fallback if attribute not found in map
-                parts.append(f"{attr}:idx[{min_key}-{max_key}]")
+            # Get Name
+            col_name = dataset.id_to_col_name[col_id]
+            
+            # Get Values
+            val_min = dataset.attr_map[col_name].get(min_key, float('-inf'))
+            val_max = dataset.attr_map[col_name].get(max_key, float('inf'))
+            
+            parts.append(f"{col_name}:[{val_min:.2f}, {val_max:.2f}]")
                 
         return ", ".join(parts)

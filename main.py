@@ -144,10 +144,10 @@ def main():
         shapley.execute(n_permutations=config.args.n_permutations)
 
         end_shapley_time = time.time()
-        log.info(f"Shapley analysis Finished in {format_time(end_shapley_time - start_shapley_time)}s.")
+        log.info(f"Shapley analysis Finished in {format_time(end_shapley_time - start_shapley_time)}.")
 
         end_script_time = time.time()
-        log.info(f"Total script execution time: {format_time(end_script_time - start_script_time)}s.")
+        log.info(f"Total script execution time: {format_time(end_script_time - start_script_time)}.")
     except Exception as e:
         # Global exception catch to log errors
         log.error(e)

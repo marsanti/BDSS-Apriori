@@ -56,11 +56,11 @@ def show_rules(rules: List[AssociationRule], dataset: Dataset, log: Logger, n_ru
     Displays n rules in a readable format.
     """
     log.info(f"Top {n_rules} High-Lift Rules:")
-    # safety check
+    
     n_rules = min(n_rules, len(rules))
     
     for i, rule in enumerate(rules[:n_rules]):
-        log.info(f"Rule #{i+1}:\n{rule.describe(dataset.attr_map)}")
+        log.info(f"Rule #{i+1}:\n{rule.describe(dataset)}")
 
 def format_time(seconds: float) -> str:
     """
