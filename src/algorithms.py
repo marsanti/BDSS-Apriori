@@ -36,7 +36,7 @@ def standard_apriori(dataset: Dataset, epsilon: float, frontier_only: bool, log:
         to_remove_from_frontier: set[Itemset] = set()
 
         # Generate valid candidates from previous level using a Generator
-        for cand, parents in generate_valid_candidates(dataset.I_0, SW_prev):
+        for cand, parents in generate_valid_candidates(dataset.i0_limits, SW_prev):
             cand.support = dataset.calculate_support(cand)
             
             if cand.support >= epsilon:

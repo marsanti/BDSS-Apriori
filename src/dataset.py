@@ -13,6 +13,10 @@ class Dataset:
         self.data: pd.DataFrame = data
         self.max_bins: int = max_bins
 
+        # optimization step: instead of dict with column names as keys use tuples with first element as column index
+        self.col_name_to_id = {name: i for i, name in enumerate(self.data.columns)}
+        self.id_to_col_name = {i: name for i, name in enumerate(self.data.columns)}
+
         self.I_0: Itemset = None
         self.attr_map: Dict[str, Dict[int, float]] = None
         # algorithms result
@@ -25,7 +29,9 @@ class Dataset:
         Get intervals to feature values.
         """
         attr_map = {}
-        I_0 = {} 
+        I_0 = [] 
+
+        self.i0_limits = {}
 
         # Create a list of intervals for each feature
         for attr in self.data.columns:
@@ -64,12 +70,14 @@ class Dataset:
                 # attr_map[attr] = {0: 9, 1: 15, 2: 25, 3: 31}
 
                 # Init intervals for the feature: (0, N)
-                I_0[attr] = (min_key, max_key)
+                col_id = self.col_name_to_id[attr]
+                I_0.append((col_id, min_key, max_key))
+                self.i0_limits[col_id] = (min_key, max_key)
 
         # Attribute idx to value map
         self.attr_map = attr_map
-        # Itemset I_0
-        self.I_0 = Itemset(intervals=I_0)
+        I_0.sort(key=lambda x: x[0])
+        self.I_0 = Itemset(tuple(I_0))
 
     def calculate_support(self, itemset: 'Itemset') -> float:
         """
@@ -77,32 +85,32 @@ class Dataset:
         Sum(C for satisfied tuples) / Total C
         """
         if not hasattr(self, '_data_numpy'):
-            # Assuming self.data is numeric. If mixed types, this needs care.
             self._data_numpy = self.data.values.astype(np.float64)
-            # Map column names to integer indices for Numba
-            self._col_map = {name: i for i, name in enumerate(self.data.columns)}
 
-        # Prepare input arrays for Numba
-        col_indices = []
-        bounds = []
-
-        for attr, (min_key, max_key) in itemset.intervals.items():
-            # Retrieve the actual float thresholds from the attr_map
-            min_val = self.attr_map[attr][min_key]
-            max_val = self.attr_map[attr][max_key]
-
-            # Get the integer column index
-            col_indices.append(self._col_map[attr])
-            bounds.append((min_val, max_val))
-
-        # If no intervals, support is 1.0 (matches everything)
-        if not col_indices:
+        intervals = itemset.intervals 
+        
+        if not intervals:
             return 1.0
 
-        # Convert to typed numpy arrays
-        col_indices_arr = np.array(col_indices, dtype=np.int32)
-        bounds_arr = np.array(bounds, dtype=np.float64)
+        # We still need to map the "Key Index" (0, 1...) to "Real Float Value" (0.5, 12.3...)
+        # We can build the bounds array directly
+        col_indices = []
+        bounds = []
+        
+        for col_idx, min_key, max_key in intervals:
+            col_name = self.id_to_col_name[col_idx]
+            
+            # Get real values from attr_map
+            real_min = self.attr_map[col_name][min_key]
+            real_max = self.attr_map[col_name][max_key]
+            
+            col_indices.append(col_idx)
+            bounds.append((real_min, real_max))
 
-        # Call the JIT-compiled function
-        return compute_support_numba(self._data_numpy, col_indices_arr, bounds_arr)
+        # Pass to Numba
+        return compute_support_numba(
+            self._data_numpy, 
+            np.array(col_indices, dtype=np.int32), 
+            np.array(bounds, dtype=np.float64)
+        )
     

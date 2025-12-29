@@ -4,7 +4,7 @@ from numba import njit
 from .itemset import Itemset
 from .rule import AssociationRule
 from .logger import Logger
-from typing import Generator, Tuple, Set, List, TYPE_CHECKING
+from typing import Generator, Tuple, Set, List, TYPE_CHECKING, Dict
 
 if TYPE_CHECKING:
     from .dataset import Dataset
@@ -33,24 +33,22 @@ def compute_support_numba(data_matrix, col_indices, bounds):
             
     return count / n_rows
 
-def generate_valid_candidates(I_0: Itemset, SW_prev: Set[Itemset]) -> Generator[Tuple[Itemset, Set[Itemset]], None, None]:
+def generate_valid_candidates(I0_limits: Dict[int, Tuple[int, int]], SW_prev: Set[Itemset]) -> Generator[Tuple[Itemset, Set[Itemset]], None, None]:
     """
     Generator of valid candidates.
     Yields (candidate, parents) lazily to save RAM.
     """
-    i0_intervals = I_0.intervals
-
     for item in SW_prev:
         for cand in item.get_successors():
 
             # Get Parents
-            parents = cand.get_predecessors(i0_intervals)
+            parents = cand.get_predecessors(I0_limits)
 
             # Pruning
             # checks if ALL parents are currently supported
-            is_witness = all(p in SW_prev for p in parents)
+            other_ps = parents - {item}
             
-            if is_witness:
+            if all(p in SW_prev for p in other_ps):
                 yield cand, parents
 
 def show_rules(rules: List[AssociationRule], dataset: Dataset, log: Logger, n_rules: int = 10):
@@ -77,14 +75,16 @@ def format_time(seconds: float) -> str:
     formatted = ""
 
     if hours > 0:
-        formatted += f"{hours}h "
+        formatted += f"{hours}h"
     if minutes > 0 or hours > 0:
-        formatted += f"{minutes}m "
+        formatted += f" {minutes}m"
     if int(seconds) > 0 or minutes > 0 or hours > 0:
-        formatted += f"{int(seconds)}s "
-    if milliseconds > 0 and minutes < 0 and hours < 0:
+        space = " " if minutes > 0 or hours > 0 else ""
+        formatted += f"{space}{int(seconds)}s"
+    if minutes == 0 and hours == 0:
         # Only show milliseconds if less than a minute
-        formatted += f"{milliseconds}ms"
+        space = " " if int(seconds) > 0 else ""
+        formatted += f"{space}{milliseconds}ms"
 
     return formatted
     

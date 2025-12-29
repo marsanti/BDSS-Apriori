@@ -1,4 +1,5 @@
 from typing_extensions import Self
+from typing import Tuple
 
 class Itemset:
     """
@@ -6,15 +7,15 @@ class Itemset:
     """
     __slots__ = ['_intervals', '_support', '_hash_cache']
     
-    def __init__(self, intervals: dict):
+    def __init__(self, intervals: Tuple):
         # intervals is a tuple of (start, end) for each attribute index
-        self._intervals: dict = intervals
+        self._intervals: Tuple = intervals
         self._support = None
         self._hash_cache = None
-    
+
     def __hash__(self):
         if self._hash_cache is None:
-            self._hash_cache = hash(frozenset(self._intervals.items()))
+            self._hash_cache = hash(self.intervals)
         return self._hash_cache
 
     def __eq__(self, other_itemset):
@@ -45,43 +46,39 @@ class Itemset:
         """
         Generates itemsets that are one step more specific (shrunk by 1).
         """
-        # Safety check
-        assert len(self._intervals.keys()) > 0
-
         successors = set()
-        for attr, (min_key, max_key) in self._intervals.items():
+        for i, (col_idx, min_key, max_key) in enumerate(self._intervals):
             # Only shrink if there is space (width >= 2)
             if min_key < max_key - 1:
+                base_list = list(self._intervals)
                 # Left Shrink
-                sl_copy = self._intervals.copy()
-                sl_copy[attr] = (min_key + 1, max_key)
-                successors.add(Itemset(sl_copy))
+                base_list[i] = (col_idx, min_key + 1, max_key)
+                successors.add(Itemset(tuple(base_list)))
                 # Right Shrink
-                sr_copy = self._intervals.copy()
-                sr_copy[attr] = (min_key, max_key - 1)
-                successors.add(Itemset(sr_copy))
+                base_list[i] = (col_idx, min_key, max_key - 1)
+                successors.add(Itemset(tuple(base_list)))
 
         return successors
     
-    def get_predecessors(self, max_intervals: dict) -> set[Self]:
+    def get_predecessors(self, i0_dict: dict) -> set[Self]:
         """
         Generates itemsets that are one step more general (expanded by 1).
         max_intervals are needed to avoid expanding beyond initial limits.
         """
         predecessors = set()
-        for attr, (min_key, max_key) in self._intervals.items():
-            i0_min_key, i0_max_key = max_intervals[attr]
+        for i, (col_idx, min_key, max_key) in enumerate(self._intervals):
+            limit_min, limit_max = i0_dict[col_idx]
 
             # Expand the interval
-            if min_key > i0_min_key:
-                copy = self._intervals.copy()
-                copy[attr] = (min_key - 1, max_key)
-                predecessors.add(Itemset(copy))
+            if min_key > limit_min:
+                base_list = list(self._intervals)
+                base_list[i] = (col_idx, min_key - 1, max_key)
+                predecessors.add(Itemset(tuple(base_list)))
             
-            if max_key < i0_max_key:
-                copy = self._intervals.copy()
-                copy[attr] = (min_key, max_key + 1)
-                predecessors.add(Itemset(copy))
+            if max_key < limit_max:
+                base_list = list(self._intervals)
+                base_list[i] = (col_idx, min_key, max_key + 1)
+                predecessors.add(Itemset(tuple(base_list)))
                 
         return predecessors
     
