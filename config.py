@@ -20,11 +20,11 @@ class ArgsType:
     max_bins: int
     alg: str
     eps: float
-    n_workers: int
     min_conf: float
     n_permutations: int
     max_p_value: float
     min_lift: float
+    max_iter: int
 
 class Config:
     def __init__(self):
@@ -48,11 +48,11 @@ class Config:
             max_bins=namespace_args.max_bins,
             alg=namespace_args.alg,
             eps=namespace_args.eps,
-            n_workers=namespace_args.n_workers,
             min_conf=namespace_args.min_conf,
             n_permutations=namespace_args.n_permutations,
             max_p_value=namespace_args.max_p_value,
-            min_lift=namespace_args.min_lift
+            min_lift=namespace_args.min_lift,
+            max_iter=namespace_args.max_iter
         )
 
         # output directory setup
@@ -83,17 +83,18 @@ class Config:
         self.parser.add_argument('--n_rows', type=int, default=0, help='Number of rows to sample (0=all)')
         self.parser.add_argument('--missing_value_key', type=int, default=-200, help='Key representing missing values in the dataset')
         self.parser.add_argument('--max_bins', type=int, default=15, help='Maximum number of bins for quantitative attributes: it controls the discretization granularity')
+        # Standard Apriori settings
         # Frequent Itemsets extraction settings
-        self.parser.add_argument('--alg', type=str, default='apriori', choices=['apriori', 'random', 'distributed'], help='Extraction algorithm')
+        self.parser.add_argument('--alg', type=str, default='apriori', choices=['apriori', 'randomic', 'distributed'], help='Extraction algorithm')
         self.parser.add_argument('--eps', type=float, default=0.8, help='Support threshold')
-        # distributed settings
-        self.parser.add_argument('--n_workers', type=int, default=4, help='Number of workers for distributed algorithms')
         # Extaction rules settings
         self.parser.add_argument('--min_conf', type=float, default=0.8, help='Minimum confidence for rule extraction')
         # Shapley settings
         self.parser.add_argument('--max_p_value', type=float, default=0.05, help='Maximum p-value threshold for filtering rules in Shapley analysis')
         self.parser.add_argument('--min_lift', type=float, default=1.5, help='Minimum lift threshold for filtering rules in Shapley analysis')
         self.parser.add_argument('--n_permutations', type=int, default=50, help='Number of permutations for Shapley value estimation')
+        # Randomic Apriori settings
+        self.parser.add_argument('--max_iter', type=int, default=0, help='Maximum number of iterations for Randomic Apriori, if 0 no limit')
 
     @property
     def args(self) -> ArgsType:

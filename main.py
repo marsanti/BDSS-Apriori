@@ -8,7 +8,7 @@ from config import Config
 from src.logger import Logger
 from src.dataset import Dataset
 from src.itemset import Itemset
-from src.algorithms import standard_apriori
+from src.algorithms import standard_apriori, randomic_apriori
 from src.rule import RuleExtractor
 from src.utils import show_rules, format_time
 from src.shapley import ShapleyAnalyzer
@@ -77,9 +77,9 @@ def main():
             match config.args.alg:
                 case 'apriori':
                     dataset.R = standard_apriori(dataset, config.args.eps, config.args.frontier_only, log)
-                case 'randomic_apriori':
-                    dataset.R = {} # TODO
-                case 'distributed_apriori':
+                case 'randomic':
+                    dataset.R = randomic_apriori(dataset, config.args.eps, config.args.frontier_only, log, config.args.max_iter)
+                case 'distributed':
                     dataset.R = {} # TODO
                 case _:
                     log.error(f"Error: Unknown algorithm '{config.args.alg}' specified.")
@@ -118,6 +118,7 @@ def main():
             show_rules(rules, dataset, log, n_rules=10)
 
             # Save rules
+            log.info(f"Saving rules to {config.out_dir}/rules.pkl...")
             with open(f'{config.out_dir}/rules.pkl', 'wb') as f:
                 pickle.dump(rules, f)
 
