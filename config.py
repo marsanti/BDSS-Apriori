@@ -25,6 +25,7 @@ class ArgsType:
     max_p_value: float
     min_lift: float
     max_iter: int
+    n_workers: int
 
 class Config:
     def __init__(self):
@@ -52,7 +53,8 @@ class Config:
             n_permutations=namespace_args.n_permutations,
             max_p_value=namespace_args.max_p_value,
             min_lift=namespace_args.min_lift,
-            max_iter=namespace_args.max_iter
+            max_iter=namespace_args.max_iter,
+            n_workers=namespace_args.n_workers,
         )
 
         # output directory setup
@@ -89,6 +91,7 @@ class Config:
         self.parser.add_argument('--eps', type=float, default=0.8, help='Support threshold')
         # Extaction rules settings
         self.parser.add_argument('--min_conf', type=float, default=0.8, help='Minimum confidence for rule extraction')
+        self.parser.add_argument('--n_workers', type=int, default=4, help='Number of workers for Rule Extraction and Distributed Apriori')
         # Shapley settings
         self.parser.add_argument('--max_p_value', type=float, default=0.05, help='Maximum p-value threshold for filtering rules in Shapley analysis')
         self.parser.add_argument('--min_lift', type=float, default=1.5, help='Minimum lift threshold for filtering rules in Shapley analysis')

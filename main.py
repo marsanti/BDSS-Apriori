@@ -8,7 +8,7 @@ from config import Config
 from src.logger import Logger
 from src.dataset import Dataset
 from src.itemset import Itemset
-from src.algorithms import standard_apriori, randomic_apriori
+from src.algorithms import standard_apriori, randomic_apriori, distributed_apriori
 from src.rule import RuleExtractor
 from src.utils import show_rules, format_time
 from src.shapley import ShapleyAnalyzer
@@ -80,7 +80,7 @@ def main():
                 case 'randomic':
                     dataset.R = randomic_apriori(dataset, config.args.eps, config.args.frontier_only, log, config.args.max_iter)
                 case 'distributed':
-                    dataset.R = {} # TODO
+                    dataset.R = distributed_apriori(dataset, config.args.eps, config.args.frontier_only, log, config.args.n_workers)
                 case _:
                     log.error(f"Error: Unknown algorithm '{config.args.alg}' specified.")
 
@@ -110,7 +110,7 @@ def main():
             
             # Step 3. Extract Rules
             extractor = RuleExtractor(dataset, min_conf=config.args.min_conf, log=log)
-            rules = extractor.extract_rules(relation)
+            rules = extractor.extract_rules(relation, n_workers=config.args.n_workers)
             
             # Sort by Lift descending
             rules.sort(key=lambda x: x.lift, reverse=True)
@@ -123,7 +123,7 @@ def main():
                 pickle.dump(rules, f)
 
             end_rule_time = time.time()
-            log.info(f"Rule Extraction completed in {format_time(end_rule_time - start_rule_time)}s. Total rules extracted: {len(rules)}")
+            log.info(f"Rule Extraction completed in {format_time(end_rule_time - start_rule_time)}. Total rules extracted: {len(rules)}")
         else:
             # rules file is given
             if(not os.path.exists(config.args.rules_file)):

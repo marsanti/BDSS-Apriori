@@ -5,11 +5,115 @@ from .logger import Logger
 
 from typing import List, Set, TYPE_CHECKING
 from scipy.stats import fisher_exact
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from .dataset import Dataset
 
+import multiprocessing
 import itertools
+
+# Global state for worker processes
+_worker_dataset: Dataset = None
+_worker_min_conf: float = 0.0
+_worker_support_cache = None
+
+def _init_worker(dataset: Dataset, min_conf: float):
+    """
+    Initializes the worker process with dataset and min_conf.
+    """
+    global _worker_dataset, _worker_min_conf, _worker_support_cache
+    _worker_dataset = dataset
+    _worker_min_conf = min_conf
+    
+    # Ensure every core has its own fast cache
+    @lru_cache(maxsize=50000)
+    def cached_support(intervals_tuple: tuple) -> float:
+        temp = Itemset(intervals_tuple)
+        return _worker_dataset.calculate_support(temp)
+    
+    _worker_support_cache = cached_support
+
+def _calculate_p_value(supp_union: float, supp_ant: float, supp_cons: float, N: int) -> float:
+    """
+    Calculates the p-value using Fisher's Exact Test.
+    Contingency Table:
+                  | Cons     | Not Cons
+        ----------|----------|----------
+        Ant       | a (X&Y)  | b (X&!Y)
+        Not Ant   | c (!X&Y) | d (!X&!Y)
+    """
+    n_union = int(supp_union * N)
+    n_ant = int(supp_ant * N)
+    n_cons = int(supp_cons * N)
+    
+    a = n_union
+    b = n_ant - n_union
+    c = n_cons - n_union
+    d = N - n_ant - c
+    
+    _, p_value = fisher_exact([[a, b], [c, d]], alternative='greater')
+    return p_value
+
+def _extract_parallel_batch(itemsets_batch: List[Itemset]) -> List[AssociationRule]:
+    """
+    Processes a batch of itemsets to extract association rules.
+    """
+    rules = []
+    
+    # Access global state
+    dataset = _worker_dataset
+    min_conf = _worker_min_conf
+    get_support = _worker_support_cache
+    
+    for union_itemset in itemsets_batch:
+        all_intervals = union_itemset.intervals
+        n_items = len(all_intervals)
+        
+        if n_items < 2:
+            continue
+
+        # Get Union Support
+        support_union = union_itemset.support
+        if support_union is None:
+            support_union = get_support(all_intervals)
+
+        # Iterate all Antecedent combinations
+        for i in range(1, n_items):
+            for ant_indices in itertools.combinations(range(n_items), i):
+                
+                # Antecedent 
+                antecedent_data = tuple(all_intervals[k] for k in ant_indices)
+                support_antecedent = get_support(antecedent_data)
+                if support_antecedent == 0: continue
+
+                # Check Confidence
+                confidence = support_union / support_antecedent
+
+                if confidence >= min_conf:
+                    antecedent = Itemset(tuple(all_intervals[k] for k in ant_indices))
+                    consequent = Itemset(tuple(all_intervals[k] for k in range(n_items) if k not in ant_indices))
+
+                    antecedent.support = support_antecedent
+                    consequent.support = get_support(consequent.intervals)
+
+                    # Metrics
+                    lift = confidence / consequent.support if consequent.support > 0 else 0.0
+                    p_val = _calculate_p_value(support_union, antecedent.support, consequent.support, len(dataset.data))
+
+                    rule = AssociationRule(
+                        antecedent=antecedent,
+                        consequent=consequent,
+                        support_union=support_union,
+                        support_antecedent=antecedent.support,
+                        support_consequent=consequent.support,
+                        confidence=confidence,
+                        lift=lift,
+                        p_value=p_val
+                    )
+
+                    rules.append(rule)
+    return rules
 
 class AssociationRule:
     """
@@ -48,92 +152,33 @@ class RuleExtractor:
         self.min_conf = min_conf
         self.log = log
 
-    def extract_rules(self, frontier: Set[Itemset]) -> List[AssociationRule]:
+    def extract_rules(self, frontier: Set[Itemset], n_workers: int = 4) -> List[AssociationRule]:
         """
-        Extracts rules from the provided frontier itemsets.
+        Extracts rules in parallel.
         """
-        if self.log:
-            self.log.info(f"Extracting rules from {len(frontier)} frontier itemsets (Min Conf: {self.min_conf})...")
-
-        rules = []
+        frontier_list = list(frontier)
+        total_items = len(frontier_list)
         
-        for idx, union_itemset in enumerate(frontier):
-            all_intervals = union_itemset.intervals
-            n_items = len(all_intervals)            
-            # We need at least 2 attributes to make a rule (A -> B)
-            if n_items < 2:
-                continue
+        self.log.info(f"Extracting rules from {total_items} itemsets using {n_workers} workers...")
 
-            # Support of the union
-            supp_union = union_itemset.support
-            if supp_union is None:
-                supp_union = self.dataset.calculate_support(union_itemset)
-
-            # Generate all non-empty subsets of indices for Antecedent
-            for i in range(1, n_items):
-                for ant_indices in itertools.combinations(range(n_items), i):
-                    
-                    # Create Antecedent and Consequent Itemsets
-                    ant_data = [all_intervals[k] for k in ant_indices]
-                    cons_data = [all_intervals[k] for k in range(n_items) if k not in ant_indices]
-                    
-                    antecedent = Itemset(tuple(ant_data))
-                    consequent = Itemset(tuple(cons_data))
-
-                    # Calculate Antecedent Support
-                    antecedent.support = self.dataset.calculate_support(antecedent)
-                    
-                    if antecedent.support == 0:
-                        continue
-
-                    # Check Confidence
-                    confidence = supp_union / antecedent.support
-                    
-                    if confidence >= self.min_conf:
-                        # Calculate Consequent Support
-                        consequent.support = self.dataset.calculate_support(consequent)
-
-                        # Calculate Metrics
-                        lift = confidence / consequent.support if consequent.support > 0 else 0.0
-                        p_val = self._calculate_p_value(supp_union, antecedent.support, consequent.support)
-
-                        rule = AssociationRule(
-                            antecedent=antecedent,
-                            consequent=consequent,
-                            support_union=supp_union,
-                            support_antecedent=antecedent.support,
-                            support_consequent=consequent.support,
-                            confidence=confidence,
-                            lift=lift,
-                            p_value=p_val
-                        )
-                        rules.append(rule)
+        # Chunking
+        chunk_size = max(1, total_items // (n_workers * 4))
+        chunks = [frontier_list[i:i + chunk_size] for i in range(0, total_items, chunk_size)]
         
-        if self.log:
-            self.log.info(f"Extraction complete. Found {len(rules)} valid rules.")
+        # Parallel Execution
+        final_rules = []
+        
+        with multiprocessing.Pool(processes=n_workers, 
+                                  initializer=_init_worker, 
+                                  initargs=(self.dataset, self.min_conf)) as pool:
             
-        return rules
-    def _calculate_p_value(self, supp_union: float, supp_ant: float, supp_cons: float) -> float:
-        """
-        Calculates P-value using Fisher's Exact Test on the contingency table.
-        """
-        N = len(self.dataset.data)
+            # Map the chunks to the workers
+            results = pool.map(_extract_parallel_batch, chunks)
+            
+            # Flatten results
+            for batch_rules in results:
+                final_rules.extend(batch_rules)
         
-        n_union = int(supp_union * N)       # X and Y
-        n_ant = int(supp_ant * N)           # X
-        n_cons = int(supp_cons * N)         # Y
-        
-        # Contingency Table:
-        #           | Cons     | Not Cons
-        # ----------|----------|----------
-        # Ant       | a (X&Y)  | b (X&!Y)
-        # Not Ant   | c (!X&Y) | d (!X&!Y)
-        
-        a = n_union
-        b = n_ant - n_union
-        c = n_cons - n_union
-        d = N - n_ant - c
-        
-        _, p_value = fisher_exact([[a, b], [c, d]], alternative='greater')
-        
-        return p_value
+        self.log.info(f"Extraction complete. Found {len(final_rules)} valid rules.")
+            
+        return final_rules

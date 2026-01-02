@@ -1,5 +1,4 @@
 from typing_extensions import Self
-from typing import Tuple
 
 class Itemset:
     """
@@ -7,9 +6,9 @@ class Itemset:
     """
     __slots__ = ['_intervals', '_support', '_hash_cache']
     
-    def __init__(self, intervals: Tuple):
+    def __init__(self, intervals: tuple):
         # intervals is a tuple of (start, end) for each attribute index
-        self._intervals: Tuple = intervals
+        self._intervals: tuple = intervals
         self._support = None
         self._hash_cache = None
 
@@ -31,7 +30,7 @@ class Itemset:
         return '-'.join([f'{attr}:{int}' for attr, int in self._intervals.items()])
     
     @property
-    def intervals(self) -> dict:
+    def intervals(self) -> tuple:
         return self._intervals
     
     @property

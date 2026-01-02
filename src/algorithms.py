@@ -1,5 +1,7 @@
 import time
 import random
+import multiprocessing
+import os
 
 from .dataset import Dataset
 from .itemset import Itemset
@@ -139,3 +141,133 @@ def randomic_apriori(dataset: Dataset, epsilon: float, frontier_only: bool, log:
 
     log.info(f"Random Apriori finished. Evaluated {count} itemsets. Found {len(R)} frequent.")
     return R
+
+
+def worker_task(dataset: Dataset, epsilon: float, frontier_only: bool, GP, GNS, R, visited, lock):
+    """
+    Worker process for Distributed Apriori.
+    GP: Global Pending (Shared Dict)
+    GNS: Global Not Supported (Shared Dict)
+    R: Result Set (Shared Dict)
+    visited: Global Visited (Shared Dict)
+    """
+    random.seed(os.getpid())
+    
+    local_visited = set()
+
+    while True:
+        batch = []
+        with lock:
+            if not GP:
+                # OPTIONAL: Wait a bit to see if other workers produce data
+                # But for simplicity, we break if empty, acknowledging the race condition
+                break
+            
+            keys = list(GP.keys())
+            # Grab up to 50 items
+            n_fetch = min(len(keys), 50) 
+            for _ in range(n_fetch):
+                k = keys.pop() # randomness is less important in batch
+                batch.append(k)
+                del GP[k]
+        
+        if not batch:
+            break
+        
+        local_new_pending = []
+        local_new_results = []
+        local_remove_from_R = []
+        
+        for item_tuple in batch:
+            # Reconstruct Itemset object from tuple
+            current_item = Itemset(item_tuple)
+            
+            # Generate Children
+            children = current_item.get_successors()
+            
+            for cand in children:
+                tup = cand.intervals
+                
+                # Check local cache first
+                if tup in local_visited:
+                    continue
+                local_visited.add(tup)
+                
+                # Calculate Support
+                cand.support = dataset.calculate_support(cand)
+                
+                if cand.support >= epsilon:
+                    local_new_results.append(cand)
+                    local_new_pending.append(cand)
+
+                if frontier_only:
+                        local_remove_from_R.append(item_tuple)
+
+        # Update Global structures in lock
+        with lock:
+            # Add new results
+            for item in local_new_results:
+                R[item.intervals] = item 
+            
+            # Add to global pending and visited
+            for item in local_new_pending:
+                if item.intervals not in visited:
+                    GP[item.intervals] = True
+                    visited[item.intervals] = True
+            
+            # Remove non-frontier parents
+            if frontier_only:
+                for parent_tuple in local_remove_from_R:
+                    # We use .pop(k, None) to avoid KeyErrors if another worker 
+                    # already removed it or if it wasn't in R for some reason.
+                    R.pop(parent_tuple, None)
+
+def distributed_apriori(dataset: Dataset, epsilon: float, frontier_only: bool, log: Logger, n_workers: int = 4):
+    """
+    Randomic Distributed Apriori.
+    """
+    # Setup Shared Manager
+    with multiprocessing.Manager() as manager:
+        # Shared Dictionaries (Act as Sets)
+        # We use dicts because manager.list() or manager.Value() is harder for sets.
+        # Key = Itemset Tuple, Value = True/Itemset
+        
+        GP = manager.dict()      # Global Pending
+        GNS = manager.dict()     # Global Not Supported
+        R = manager.dict()       # Relation / Result Set
+        visited = manager.dict() # Global Visited
+        lock = manager.Lock()
+        
+        # Initialization
+        dataset.I_0.support = dataset.calculate_support(dataset.I_0)
+        if dataset.I_0.support < epsilon:
+            return set()
+        
+        # Add I_0 to start
+        start_tuple = dataset.I_0.intervals
+        GP[start_tuple] = True
+        R[start_tuple] = dataset.I_0
+        visited[start_tuple] = True
+        
+        # Start Workers
+        processes = []
+        for _ in range(n_workers):
+            p = multiprocessing.Process(
+                target=worker_task,
+                args=(dataset, epsilon, frontier_only, GP, GNS, R, visited, lock)
+            )
+            p.start()
+            processes.append(p)
+            
+        # Wait for completion
+        for p in processes:
+            p.join()
+            
+        log.info("Workers finished.")
+        
+        # Convert Shared Dict back to Set[Itemset]
+        final_result = set()
+        for item in R.values():
+            final_result.add(item)
+                
+        return final_result
